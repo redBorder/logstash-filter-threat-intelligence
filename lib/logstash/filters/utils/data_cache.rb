@@ -8,7 +8,7 @@ class MemcachedManager
     @memcached = Dalli::Client.new(memcached_servers)
   end
 
-  def fetch_cached_data(key)
+  def get(key)
     @memcached.get(key)
   end
 end

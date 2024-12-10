@@ -2,6 +2,7 @@
 
 # logstash-filter-threat-intelligence.rb
 
+require 'dalli'
 require 'logstash/filters/base'
 require 'logstash/namespace'
 
@@ -25,7 +26,7 @@ module LogStash
 
       def filter(event)
         @key_mapping.each do |mapped_key, original_key|
-          if @memcached_manager.fetch_cached_data("rbti:#{event.get(original_key)}")
+          if @memcached_manager.get("rbti:#{event.get(original_key)}")
             event.set("[#{mapped_key}_malicious]", "true")
           end
         end
