@@ -20,18 +20,38 @@ module LogStash
       config :key_mapping, validate: :hash, default: {}
 
       def register
-        @memcached_servers = MemcachedConfig.servers
-        @memcached_manager = MemcachedManager.new(@memcached_servers)
+        begin
+          @memcached_servers = MemcachedConfig.servers
+          @memcached_manager = MemcachedManager.new(@memcached_servers)
+        rescue => e
+          @logger.error("An error occurred during register: #{e.message}")
+          @logger.debug("Backtrace: #{e.backtrace.join("\n")}")
+          @memcached_manager = nil
+        end
       end
 
       def filter(event)
-        @key_mapping.each do |mapped_key, original_key|
-          if @memcached_manager.get("rbti:#{event.get(original_key)}")
-            event.set("[#{mapped_key}_malicious]", "true")
-          end
-        end
+        begin
+          @logger.info("Key mapping: #{@key_mapping}")
 
-        filter_matched(event)
+          @key_mapping.each do |mapped_key, original_key|
+            original_value = event.get(mapped_key)
+
+            if original_value && @memcached_manager&.get("rbti:#{original_value}")
+              @logger.info("Value #{original_value} is flagged as malicious")
+              event.set("[#{mapped_key}_is_malicious]", "malicious")
+            else
+              @logger.info("Value #{original_value} is not flagged as malicious")
+            end
+          end
+
+          filter_matched(event)
+        rescue => e
+          @logger.error("An error occurred in the ThreatIntelligence filter: #{e.message}")
+          @logger.debug("Backtrace: #{e.backtrace.join("\n")}")
+          event.set('error_message', "An error occurred while processing the threat intelligence filter")
+          filter_matched(event)  # Continue processing the event even after an error
+        end
       end
     end
   end
