@@ -32,19 +32,12 @@ module LogStash
 
       def filter(event)
         begin
-          @logger.info("Key mapping: #{@key_mapping}")
-
           @key_mapping.each do |mapped_key, original_key|
             original_value = event.get(mapped_key)
-
             if original_value && @memcached_manager&.get("rbti:#{original_value}")
-              @logger.info("Value #{original_value} is flagged as malicious")
               event.set("[#{mapped_key}_is_malicious]", "malicious")
-            else
-              @logger.info("Value #{original_value} is not flagged as malicious")
             end
           end
-
           filter_matched(event)
         rescue => e
           @logger.error("An error occurred in the ThreatIntelligence filter: #{e.message}")
