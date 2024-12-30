@@ -18,10 +18,10 @@ module LogStash
       config_name 'threatintelligence'
 
       config :key_mapping, validate: :hash, default: {}
+      config :memcached_servers, validate: :array, default: ["memcached.service:11211"]
 
       def register
         begin
-          @memcached_servers = MemcachedConfig.servers
           @memcached_manager = MemcachedManager.new(@memcached_servers)
         rescue => e
           @logger.error("An error occurred during register: #{e.message}")
@@ -50,7 +50,7 @@ module LogStash
           @logger.error("An error occurred in the ThreatIntelligence filter: #{e.message}")
           @logger.debug("Backtrace: #{e.backtrace.join("\n")}")
           event.set('error_message', "An error occurred while processing the threat intelligence filter")
-          filter_matched(event)  # Continue processing the event even after an error
+          filter_matched(event)
         end
       end
     end
