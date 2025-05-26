@@ -18,7 +18,7 @@ module LogStash
       config_name 'threat_intelligence'
 
       config :memcached_servers, validate: :array, default: ["memcached.service:11211"]
-      config :indicators_types, validate: :hash, default: {}
+      config :indicators_mapping, validate: :hash, default: {}
       config :sensors_policies, validate: :hash, required: true
       config :key_prefix, validate: :string, default: "rbti"
 
@@ -37,9 +37,9 @@ module LogStash
             end
           end
 
-          # Clean @indicators_types
+          # Clean @indicators_mapping
           allowed_types = ["ip", "domain", "url", "sha1", "sha2"]
-          @indicators_types  = @indicators_types.select { |_, v| allowed_types.include?(v) }
+          @indicators_mapping  = @indicators_mapping.select { |_, v| allowed_types.include?(v) }
 
         rescue => e
           @logger.error("Error initializing Memcached client: #{e.message}")
@@ -55,7 +55,7 @@ module LogStash
 
           return unless @sensors_policies && @sensors_policies.any?
 
-          return unless @indicators_types.empty?
+          return unless @indicators_mapping.any?
 
           sensor_name = event.get('sensor_name')
           return unless sensor_name && !sensor_name.empty?
@@ -72,7 +72,7 @@ module LogStash
 
           indicators = {}
 
-          @indicators_types.keys.each do |key|
+          @indicators_mapping.keys.each do |key|
             value = event.get(key)
             indicators[key] = value if value && !value.to_s.empty?
           end
@@ -84,10 +84,10 @@ module LogStash
           indicators.each do |indicator, value|
             next unless value && !value.to_s.empty?
 
-            next unless @indicators_types[indicator] # Ensure the indicator is in the mapping
+            next unless @indicators_mapping[indicator] # Ensure the indicator is in the mapping
 
             # Firt we check if the key is clean
-            memcached_key = "#{@key_prefix}:#{ti_policy_id}:c:#{@indicators_types[indicator]}:#{value.to_s}"
+            memcached_key = "#{@key_prefix}:#{ti_policy_id}:c:#{@indicators_mapping[indicator]}:#{value.to_s}"
             @logger.debug("Checking if memcached key is clean: #{memcached_key} ...")
             memcached_value = @memcached_manager.get(memcached_key)
 
@@ -98,7 +98,7 @@ module LogStash
             end
 
             # Then we check if key is malicious
-            memcached_key = "#{@key_prefix}:#{ti_policy_id}:c:#{@indicators_types[indicator]}:#{value.to_s}" 
+            memcached_key = "#{@key_prefix}:#{ti_policy_id}:c:#{@indicators_mapping[indicator]}:#{value.to_s}" 
             @logger.debug("Checking if memcached key is malicious: #{memcached_key} ...")
             memcached_value = @memcached_manager.get(memcached_key)
             next unless memcached_value
@@ -114,7 +114,7 @@ module LogStash
               weights[indicator] = 1.0
             else
               # If the value is a JSON object, parse it to get the weight
-              next unless @indicators_types[indicator] == 'ip'
+              next unless @indicators_mapping[indicator] == 'ip'
 
               begin
                 details = JSON.parse(memcached_value)
