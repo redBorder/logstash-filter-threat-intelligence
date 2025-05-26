@@ -87,7 +87,7 @@ module LogStash
             next unless @indicators_mapping[indicator] # Ensure the indicator is in the mapping
 
             # Firt we check if the key is clean
-            memcached_key = "#{@key_prefix}:#{ti_policy_id}:c:#{@indicators_mapping[indicator]}:#{value.to_s}"
+            memcached_key = "#{@key_prefix}:#{ti_policy_id}:#{@indicators_mapping[indicator]}:c:#{value.to_s}"
             @logger.debug("Checking if memcached key is clean: #{memcached_key} ...")
             memcached_value = @memcached_manager.get(memcached_key)
 
@@ -98,7 +98,7 @@ module LogStash
             end
 
             # Then we check if key is malicious
-            memcached_key = "#{@key_prefix}:#{ti_policy_id}:c:#{@indicators_mapping[indicator]}:#{value.to_s}" 
+            memcached_key = "#{@key_prefix}:#{ti_policy_id}:#{@indicators_mapping[indicator]}:m:#{value.to_s}" 
             @logger.debug("Checking if memcached key is malicious: #{memcached_key} ...")
             memcached_value = @memcached_manager.get(memcached_key)
             next unless memcached_value
