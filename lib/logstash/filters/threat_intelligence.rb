@@ -17,10 +17,10 @@ module LogStash
     class ThreatIntelligence < LogStash::Filters::Base
       config_name 'threat_intelligence'
 
-      config :indicators_types, validate: :hash, default: {}
       config :memcached_servers, validate: :array, default: ["memcached.service:11211"]
-      config :key_prefix, validate: :string, default: "rbti"
+      config :indicators_types, validate: :hash, default: {}
       config :sensors_policies, validate: :hash, required: true
+      config :key_prefix, validate: :string, default: "rbti"
 
       def register
         begin
@@ -29,8 +29,12 @@ module LogStash
            # Parse sensor_policies
            @sensors_policies.each do |sensor_name, policy|
             next unless policy.is_a?(String)
-
-            @sensors_policies[sensor_name] = JSON.parse(policy)
+  
+            begin
+              @sensors_policies[sensor_name] = JSON.parse(policy)
+            rescue JSON::ParserError => e
+              @logger.error("Invalid JSON for sensor #{sensor_name}: #{e.message}")
+            end
           end
 
           # Clean @indicators_types
@@ -50,6 +54,8 @@ module LogStash
           return unless @memcached_manager
 
           return unless @sensors_policies && @sensors_policies.any?
+
+          return unless @indicators_types.empty?
 
           sensor_name = event.get('sensor_name')
           return unless sensor_name && !sensor_name.empty?
@@ -92,7 +98,7 @@ module LogStash
             end
 
             # Then we check if key is malicious
-            memcached_key = "#{@key_prefix}:#{ti_policy_id}:m:#{value.to_s}"
+            memcached_key = "#{@key_prefix}:#{ti_policy_id}:c:#{@indicators_types[indicator]}:#{value.to_s}" 
             @logger.debug("Checking if memcached key is malicious: #{memcached_key} ...")
             memcached_value = @memcached_manager.get(memcached_key)
             next unless memcached_value
@@ -143,9 +149,9 @@ module LogStash
           filter_matched(event)
 
         rescue => e
-          @logger.error("Exception in Threat Ingeligence filter: #{e.message}")
+          @logger.error("Exception in Threat Intelligence filter: #{e.message}")
           @logger.debug("Backtrace: #{e.backtrace.join("\n")}")
-          event.set('error_message', "An error occurred in Threat Ingeligence filter")
+          event.set('error_message', "An error occurred in Threat Intelligence filter")
           filter_matched(event)
         end
       end
