@@ -15,7 +15,7 @@ module LogStash
     # Base filter to enrich events with threat intelligence data
     #
     class ThreatIntelligence < LogStash::Filters::Base
-      config_name 'threatintelligence'
+      config_name 'threat_intelligence'
 
       config :indicators_types, validate: :hash, default: {}
       config :memcached_servers, validate: :array, default: ["memcached.service:11211"]
