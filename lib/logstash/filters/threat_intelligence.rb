@@ -26,19 +26,12 @@ module LogStash
         begin
           @memcached_manager = MemcachedManager.new(@memcached_servers)
 
-           # Parse sensor_policies
-           @sensors_policies.each do |sensor_name, policy|
-            next unless policy.is_a?(String)
+          # Parse sensor_policies
+          @sensors_policies.each do |sensor_name, policy|
+            next unless policy.is_a?(Hash)
   
-            begin
-              @sensors_policies[sensor_name] = JSON.parse(policy)
-
-              allowed_policies_attributes = ['id', 'name', 'threshold_ip', 'threshold_domain', 'threshold_url', 'threshold_sha1', 'threshold_sha2']
-              @sensors_policies = @sensors_policies.select {|k, _| allowed_types.include?(k) } 
-
-            rescue JSON::ParserError => e
-              @logger.error("Invalid JSON for sensor #{sensor_name}: #{e.message}")
-            end
+            allowed_policies_attributes = ['id', 'name', 'threshold_ip', 'threshold_domain', 'threshold_url', 'threshold_sha1', 'threshold_sha2']
+            @sensors_policies[sensor_name] = policy.select {|k, _| allowed_policies_attributes.include?(k) } 
           end
 
           # Clean @indicators_mapping
@@ -65,14 +58,13 @@ module LogStash
           return unless sensor_name && !sensor_name.empty?
 
           sensor_policy = @sensors_policies[sensor_name]
-          return unless sensor_policy['id'] && sensor_policy['name'] && sensor_policy['threshold']
+          return unless sensor_policy['id'] && sensor_policy['name']
 
           ti_policy_id = sensor_policy['id'].to_s
           ti_policy_name = sensor_policy['name'].to_s
-          ti_policy_threshold = sensor_policy['threshold'].to_f rescue 0
           ti_category = 'clean'
           ti_score = 0
-          ti_indicators = nil
+          ti_indicators = []
 
           thresholds = {}
           @allowed_indicators_types.each do |indicator_type|
@@ -94,7 +86,7 @@ module LogStash
 
             next unless @indicators_mapping[indicator] # Ensure the indicator is in the mapping
 
-            # Firt we check if the key is clean
+            # First we check if the key is clean
             memcached_key = "#{@key_prefix}:#{ti_policy_id}:#{@indicators_mapping[indicator]}:c:#{value.to_s}"
             @logger.debug("Checking if memcached key is clean: #{memcached_key} ...")
 
@@ -113,7 +105,7 @@ module LogStash
             @logger.debug("Key #{memcached_key} is malicious.")
             malicious_indicators << indicator
 
-            # Clean memcached value
+            # Convert weight to float safely
             weight = weight.to_f rescue 0
             weights[indicator] = weight
           end
@@ -121,12 +113,11 @@ module LogStash
           malicious_indicators = malicious_indicators - clean_indicators
 
           total_score = 0
-          ti_indicators = []
           malicious_indicators.each do |indicator|
             indicator_type = @indicators_mapping[indicator]
             next unless indicator_type
 
-            threshold = thresholds["threshold_#{indicator_type}"]
+            threshold = thresholds[indicator_type]
             next unless threshold
 
             next unless weights[indicator]
@@ -135,7 +126,7 @@ module LogStash
 
             if score >= threshold
               ti_category = 'malicious'
-              ti_indicators = ti_indicator.push(indicator)
+              ti_indicators.push(indicator)
               total_score = total_score + score
             end
           end
@@ -144,20 +135,19 @@ module LogStash
           event.set('ti_policy_name', ti_policy_name)
           event.set('ti_category', ti_category)
 
-          if ti_indicators
-            ti_average_score = total_score / ti_indicators.count
-            ti_indicators = ti_indicatos.uniq.join(', ')
+          if ti_indicators.any?
+            ti_average_score = ti_indicators.count > 0 ? (total_score / ti_indicators.count) : 0
+            ti_indicators = ti_indicators.uniq.join(', ')
 
             event.set('ti_average_score', ti_average_score)
             event.set('ti_indicators', ti_indicators)
           end
 
-          filter_matched(event)
-
         rescue => e
           @logger.error("Exception in Threat Intelligence filter: #{e.message}")
           @logger.debug("Backtrace: #{e.backtrace.join("\n")}")
           event.set('error_message', "An error occurred in Threat Intelligence filter")
+        ensure
           filter_matched(event)
         end
       end
