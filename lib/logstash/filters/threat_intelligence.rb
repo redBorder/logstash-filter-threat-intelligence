@@ -120,9 +120,12 @@ module LogStash
             threshold = thresholds[indicator_type]
             next unless threshold
 
-            next unless weights[indicator]
+            weight = weights[indicator]
+            next unless weight
 
-            score = weights[indicator] * 100
+            score = weight * 100
+            
+            @logger.debug("Indicator #{indicator} of type #{indicator_type} has weight #{weight}, score #{score}, threshold #{threshold}")
 
             if score >= threshold
               ti_category = 'malicious'
@@ -137,6 +140,7 @@ module LogStash
 
           if ti_indicators.any?
             ti_average_score = ti_indicators.count > 0 ? (total_score / ti_indicators.count) : 0
+            ti_average_score = ti_average_score.round(2)
             ti_indicators = ti_indicators.uniq.join(', ')
 
             event.set('ti_average_score', ti_average_score)
