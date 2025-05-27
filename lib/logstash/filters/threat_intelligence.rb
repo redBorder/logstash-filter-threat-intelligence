@@ -32,14 +32,18 @@ module LogStash
   
             begin
               @sensors_policies[sensor_name] = JSON.parse(policy)
+
+              allowed_policies_attributes = ['id', 'name', 'threshold_ip', 'threshold_domain', 'threshold_url', 'threshold_sha1', 'threshold_sha2']
+              @sensors_policies = @sensors_policies.select {|k, _| allowed_types.include?(k) } 
+
             rescue JSON::ParserError => e
               @logger.error("Invalid JSON for sensor #{sensor_name}: #{e.message}")
             end
           end
 
           # Clean @indicators_mapping
-          allowed_types = ["ip", "domain", "url", "sha1", "sha2"]
-          @indicators_mapping  = @indicators_mapping.select { |_, v| allowed_types.include?(v) }
+          @allowed_indicators_types = ['ip', 'domain', 'url', 'sha1', 'sha2']
+          @indicators_mapping  = @indicators_mapping.select { |_, v| @allowed_indicators_types.include?(v) }
 
         rescue => e
           @logger.error("Error initializing Memcached client: #{e.message}")
@@ -70,8 +74,12 @@ module LogStash
           ti_score = 0
           ti_indicators = nil
 
-          indicators = {}
+          thresholds = {}
+          @allowed_indicators_types.each do |indicator_type|
+            thresholds[indicator_type] = sensor_policy["threshold_#{indicator_type}"] || 0
+          end
 
+          indicators = {}
           @indicators_mapping.keys.each do |key|
             value = event.get(key)
             indicators[key] = value if value && !value.to_s.empty?
@@ -89,9 +97,8 @@ module LogStash
             # Firt we check if the key is clean
             memcached_key = "#{@key_prefix}:#{ti_policy_id}:#{@indicators_mapping[indicator]}:c:#{value.to_s}"
             @logger.debug("Checking if memcached key is clean: #{memcached_key} ...")
-            memcached_value = @memcached_manager.get(memcached_key)
 
-            if memcached_value
+            if @memcached_manager.get(memcached_key) 
               @logger.debug("Key #{memcached_key} is clean.")
               clean_indicators << indicator
               next
@@ -100,51 +107,50 @@ module LogStash
             # Then we check if key is malicious
             memcached_key = "#{@key_prefix}:#{ti_policy_id}:#{@indicators_mapping[indicator]}:m:#{value.to_s}" 
             @logger.debug("Checking if memcached key is malicious: #{memcached_key} ...")
-            memcached_value = @memcached_manager.get(memcached_key)
-            next unless memcached_value
+            weight = @memcached_manager.get(memcached_key)
+            next unless weight
 
             @logger.debug("Key #{memcached_key} is malicious.")
             malicious_indicators << indicator
 
             # Clean memcached value
-            memcached_value = memcached_value.to_s.strip
-
-            # Calculate weight
-            if memcached_value == "1"
-              weights[indicator] = 1.0
-            else
-              # If the value is a JSON object, parse it to get the weight
-              next unless @indicators_mapping[indicator] == 'ip'
-
-              begin
-                details = JSON.parse(memcached_value)
-                next unless details['weight']
-
-                weights[indicator] = details['weight'].to_f
-              rescue JSON::ParserError
-                @logger.debug("Invalid JSON in Memcached for #{memcached_key}")
-              end
-            end
+            weight = weight.to_f rescue 0
+            weights[indicator] = weight
           end
 
           malicious_indicators = malicious_indicators - clean_indicators
 
-          if malicious_indicators.any?
+          total_score = 0
+          ti_indicators = []
+          malicious_indicators.each do |indicator|
+            indicator_type = @indicators_mapping[indicator]
+            next unless indicator_type
 
-            # Calculate score in case there are weights or 100 (default malicious max score)
-            ti_score = weights.any? ? (weights.values.max * 100).round(2) : 100
+            threshold = thresholds["threshold_#{indicator_type}"]
+            next unless threshold
 
-            if ti_score >= ti_policy_threshold
+            next unless weights[indicator]
+
+            score = weights[indicator] * 100
+
+            if score >= threshold
               ti_category = 'malicious'
-              ti_indicators = malicious_indicators.uniq.join(', ')
+              ti_indicators = ti_indicator.push(indicator)
+              total_score = total_score + score
             end
           end
 
           event.set('ti_policy_id', ti_policy_id)
           event.set('ti_policy_name', ti_policy_name)
           event.set('ti_category', ti_category)
-          event.set('ti_score', ti_score)
-          event.set('ti_indicators', ti_indicators) if ti_indicators
+
+          if ti_indicators
+            ti_average_score = total_score / ti_indicators.count
+            ti_indicators = ti_indicatos.uniq.join(', ')
+
+            event.set('ti_average_score', ti_average_score)
+            event.set('ti_indicators', ti_indicators)
+          end
 
           filter_matched(event)
 
