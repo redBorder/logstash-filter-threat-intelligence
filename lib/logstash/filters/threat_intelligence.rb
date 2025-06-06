@@ -58,6 +58,10 @@ module LogStash
           return unless sensor_name && !sensor_name.empty?
 
           sensor_policy = @sensors_policies[sensor_name]
+          unless sensor_policy
+            @logger.debug("No policy found for sensor_name: #{sensor_name}")
+            return
+          end
           return unless sensor_policy['id'] && sensor_policy['name']
 
           ti_policy_id = sensor_policy['id'].to_s
