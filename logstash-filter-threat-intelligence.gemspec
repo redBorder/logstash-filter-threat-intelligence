@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name = 'logstash-filter-threat-intelligence'
-  s.version = '0.0.1'
+  s.version = '1.0.0'
   s.licenses = ['AGPL-3.0']
   s.summary = "This plugin allows Logstash to enrich events with threat intelligence data"
   s.description = "This plugin allows Logstash to enrich events with threat intelligence data"
